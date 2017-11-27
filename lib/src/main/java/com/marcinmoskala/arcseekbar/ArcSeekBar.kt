@@ -15,22 +15,28 @@ import java.lang.Math.*
 class ArcSeekBar @JvmOverloads constructor(
         context: Context,
         attrs: AttributeSet? = null,
-        defStyle: Int = -1
+        defStyle: Int = 0,
+        defStyleRes: Int = 0
 ) : View(context, attrs, defStyle) {
 
     var onProgressChangedListener: (ProgressListener)? = null
     var onStartTrackingTouch: (ProgressListener)? = null
     var onStopTrackingTouch: (ProgressListener)? = null
 
-    private val a = attrs?.let { context.obtainStyledAttributes(attrs, R.styleable.ArcSeekBar, defStyle, 0) }
+    private val a = attrs?.let { context.obtainStyledAttributes(attrs, R.styleable.ArcSeekBar, defStyle, defStyleRes) }
 
     var maxProgress = a.useOrDefault(100) { getInteger(R.styleable.ArcSeekBar_maxProgress, it) }
+        set(progress) {
+            field = bound(0, progress, Int.MAX_VALUE)
+            drawData?.let { drawData = it.copy(maxProgress = progress) }
+            invalidate()
+        }
 
     var progress: Int = a.useOrDefault(0) { getInteger(R.styleable.ArcSeekBar_progress, it) }
         set(progress) {
             field = bound(0, progress, maxProgress)
-            onProgressChangedListener?.invoke(field)
-            drawData = drawData?.copy(progress = field)
+            onProgressChangedListener?.invoke(progress)
+            drawData?.let { drawData = it.copy(progress = progress) }
             invalidate()
         }
 
@@ -98,7 +104,7 @@ class ArcSeekBar @JvmOverloads constructor(
 
     private var drawData: ArcSeekBarData? = null
         set(value) {
-            field = value!!
+            field = value ?: return
             val temp = drawerDataObservers.toList()
             temp.forEach { it(value) }
             drawerDataObservers -= temp
@@ -181,30 +187,15 @@ class ArcSeekBar @JvmOverloads constructor(
     }
 
     private fun updateOnTouch(event: MotionEvent) {
-        val state = drawData ?: return
-        val x = event.x
-        val y = event.y
-        if (y > state.height + state.dy * 2) return
-        val distToCircleCenter = sqrt(pow(state.circleCenterX - x.toDouble(), 2.0) + pow(state.circleCenterY - y.toDouble(), 2.0))
-        if (abs(distToCircleCenter - state.r) > thumb.intrinsicHeight) return
+        val progressFromClick = drawData?.progressFromClick(event.x, event.y, thumb.intrinsicHeight) ?: return
         isPressed = true
-        val innerWidthHalf = state.width / 2
-        val xFromCenter = bound(-innerWidthHalf, x - state.circleCenterX, innerWidthHalf).toDouble()
-        val touchAngle = acos(xFromCenter / state.r) + state.alphaRad - PI / 2
-        val angleToMax = 1.0 - touchAngle / (2 * state.alphaRad)
-        progress = (maxProgress * angleToMax).toInt()
+        progress = progressFromClick
     }
 
     override fun isEnabled(): Boolean = mEnabled
 
     override fun setEnabled(enabled: Boolean) {
         this.mEnabled = enabled
-    }
-
-    private fun <T : Number> bound(min: T, value: T, max: T) = when {
-        value.toDouble() > max.toDouble() -> max
-        value.toDouble() < min.toDouble() -> min
-        else -> value
     }
 
     fun <T, R> T?.useOrDefault(default: R, usage: T.(R) -> R) = if (this == null) default else usage(default)
